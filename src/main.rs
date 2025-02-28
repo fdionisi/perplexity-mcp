@@ -12,6 +12,7 @@ use context_server::{
 };
 use http_client::{HttpClient, Request, RequestBuilderExt, ResponseAsyncBodyExt};
 use http_client_reqwest::HttpClientReqwest;
+use indoc::formatdoc;
 use serde_json::{Value, json};
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
@@ -242,7 +243,7 @@ impl ToolExecutor for GetDocumentationTool {
 
         let context = args.get("context").and_then(|v| v.as_str()).unwrap_or("");
 
-        let prompt = format!(
+        let prompt = formatdoc!(
             "Provide comprehensive documentation and usage examples for {}. {} Include:
             1. Basic overview and purpose
             2. Key features and capabilities
@@ -316,7 +317,7 @@ impl ToolExecutor for FindApisTool {
 
         let context = args.get("context").and_then(|v| v.as_str()).unwrap_or("");
 
-        let prompt = format!(
+        let prompt = formatdoc!(
             "Find and evaluate APIs that could be used for: {}. {} For each API, provide:
             1. Name and brief description
             2. Key features and capabilities
@@ -393,7 +394,7 @@ impl ToolExecutor for CheckDeprecatedCodeTool {
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
-        let prompt = format!(
+        let prompt = formatdoc!(
             "Analyze this code for deprecated features or patterns{}:
 
             {}
