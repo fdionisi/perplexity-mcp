@@ -836,7 +836,22 @@ checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
 
 [[package]]
 name = "perplexity-mcp"
-version = "0.1.1"
+version = "0.1.2"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "context-server",
+ "http-client",
+ "http-client-reqwest",
+ "parking_lot",
+ "perplexity_mcp_tools",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "perplexity_mcp_tools"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -844,9 +859,7 @@ dependencies = [
  "http-client",
  "http-client-reqwest",
  "indoc",
- "parking_lot",
  "serde_json",
- "tokio",
 ]
 
 [[package]]
