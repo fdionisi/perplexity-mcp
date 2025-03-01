@@ -39,14 +39,19 @@ async fn call_perplexity_api(
     http_client: &Arc<dyn HttpClient>,
     model: &str,
     messages: Value,
+    search_recency_filter: Option<&str>,
 ) -> Result<Value> {
     let api_key = env::var("PERPLEXITY_API_KEY")
         .map_err(|_| anyhow!("PERPLEXITY_API_KEY not set in environment"))?;
 
-    let request_body = json!({
+    let mut request_body = json!({
         "model": model,
         "messages": messages
     });
+
+    if let Some(filter) = search_recency_filter {
+        request_body["search_recency_filter"] = json!(filter);
+    }
 
     let response = http_client
         .send(
@@ -90,6 +95,8 @@ impl ToolExecutor for SearchTool {
             .and_then(|v| v.as_str())
             .unwrap_or("normal");
 
+        let search_recency_filter = args.get("search_recency_filter").and_then(|v| v.as_str());
+
         let prompt = match detail_level {
             "brief" => format!("Provide a brief, concise answer to: {}", query),
             "detailed" => format!(
@@ -104,8 +111,13 @@ impl ToolExecutor for SearchTool {
 
         let messages = json!([{"role": "user", "content": prompt}]);
 
-        let response_body =
-            call_perplexity_api(&self.http_client, "sonar-reasoning-pro", messages).await?;
+        let response_body = call_perplexity_api(
+            &self.http_client,
+            "sonar-reasoning-pro",
+            messages,
+            search_recency_filter,
+        )
+        .await?;
 
         let content = format_response_with_references(&response_body)?;
 
@@ -130,6 +142,11 @@ impl ToolExecutor for SearchTool {
                         "type": "string",
                         "description": "Optional: Desired level of detail (brief, normal, detailed)",
                         "enum": ["brief", "normal", "detailed"]
+                    },
+                    "search_recency_filter": {
+                        "type": "string",
+                        "description": "Optional: Filter for search results recency (month, week, day, hour)",
+                        "enum": ["month", "week", "day", "hour"]
                     }
                 },
                 "required": ["query"]
@@ -180,7 +197,7 @@ impl ToolExecutor for GetDocumentationTool {
         let messages = json!([{"role": "user", "content": prompt}]);
 
         let response_body =
-            call_perplexity_api(&self.http_client, "sonar-reasoning-pro", messages).await?;
+            call_perplexity_api(&self.http_client, "sonar-reasoning-pro", messages, None).await?;
 
         let content = format_response_with_references(&response_body)?;
 
@@ -255,7 +272,7 @@ impl ToolExecutor for FindApisTool {
         let messages = json!([{"role": "user", "content": prompt}]);
 
         let response_body =
-            call_perplexity_api(&self.http_client, "sonar-reasoning-pro", messages).await?;
+            call_perplexity_api(&self.http_client, "sonar-reasoning-pro", messages, None).await?;
 
         let content = format_response_with_references(&response_body)?;
 
@@ -334,7 +351,7 @@ impl ToolExecutor for CheckDeprecatedCodeTool {
         let messages = json!([{"role": "user", "content": prompt}]);
 
         let response_body =
-            call_perplexity_api(&self.http_client, "sonar-reasoning-pro", messages).await?;
+            call_perplexity_api(&self.http_client, "sonar-reasoning-pro", messages, None).await?;
 
         let content = format_response_with_references(&response_body)?;
 
