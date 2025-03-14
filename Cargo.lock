@@ -859,6 +859,7 @@ dependencies = [
  "http-client",
  "http-client-reqwest",
  "indoc",
+ "log",
  "serde_json",
 ]
 

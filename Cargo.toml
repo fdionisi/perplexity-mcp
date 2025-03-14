@@ -25,4 +25,5 @@ context-server = { git = "https://github.com/fdionisi/context-server", version =
 http-client = { git = "https://github.com/fdionisi/http-client", version = "0.2.0" }
 http-client-reqwest = { git = "https://github.com/fdionisi/http-client", version = "0.2.0" }
 indoc = "2.0.5"
+log = "0.4"
 serde_json = "1"

@@ -8,6 +8,7 @@ use indoc::formatdoc;
 use serde_json::{Value, json};
 
 fn format_response_with_references(response_body: &Value) -> Result<String> {
+    log::debug!("Formatting response with references");
     let content = response_body["choices"][0]["message"]["content"]
         .as_str()
         .ok_or_else(|| anyhow!("Failed to extract content from response"))?
@@ -15,6 +16,7 @@ fn format_response_with_references(response_body: &Value) -> Result<String> {
 
     if let Some(citations) = response_body.get("citations").and_then(|c| c.as_array()) {
         if !citations.is_empty() {
+            log::info!("Found {} citations", citations.len());
             let references = citations
                 .iter()
                 .enumerate()
@@ -32,6 +34,7 @@ fn format_response_with_references(response_body: &Value) -> Result<String> {
         }
     }
 
+    log::info!("No citations found in response");
     Ok(content)
 }
 
@@ -41,8 +44,11 @@ async fn call_perplexity_api(
     messages: Value,
     search_recency_filter: Option<&str>,
 ) -> Result<Value> {
-    let api_key = env::var("PERPLEXITY_API_KEY")
-        .map_err(|_| anyhow!("PERPLEXITY_API_KEY not set in environment"))?;
+    log::debug!("Calling Perplexity API with model: {}", model);
+    let api_key = env::var("PERPLEXITY_API_KEY").map_err(|_| {
+        log::error!("PERPLEXITY_API_KEY not set in environment");
+        anyhow!("PERPLEXITY_API_KEY not set in environment")
+    })?;
 
     let mut request_body = json!({
         "model": model,
@@ -50,6 +56,7 @@ async fn call_perplexity_api(
     });
 
     if let Some(filter) = search_recency_filter {
+        log::info!("Applying search recency filter: {}", filter);
         request_body["search_recency_filter"] = json!(filter);
     }
 
@@ -64,10 +71,10 @@ async fn call_perplexity_api(
         )
         .await?;
 
-    response
-        .json()
-        .await
-        .map_err(|err| anyhow!("{}", err.to_string()))
+    response.json().await.map_err(|err| {
+        log::error!("Failed to parse API response: {}", err);
+        anyhow!("{}", err.to_string())
+    })
 }
 
 pub struct SearchTool {
@@ -83,6 +90,7 @@ impl SearchTool {
 #[async_trait]
 impl ToolExecutor for SearchTool {
     async fn execute(&self, arguments: Option<Value>) -> Result<Vec<ToolContent>> {
+        log::debug!("Executing SearchTool");
         let args = arguments.ok_or_else(|| anyhow!("Missing arguments"))?;
 
         let query = args
@@ -108,6 +116,8 @@ impl ToolExecutor for SearchTool {
                 query
             ),
         };
+
+        log::info!("Prepared search prompt with detail level: {}", detail_level);
 
         let messages = json!([{"role": "user", "content": prompt}]);
 
@@ -168,6 +178,7 @@ impl GetDocumentationTool {
 #[async_trait]
 impl ToolExecutor for GetDocumentationTool {
     async fn execute(&self, arguments: Option<Value>) -> Result<Vec<ToolContent>> {
+        log::debug!("Executing GetDocumentationTool");
         let args = arguments.ok_or_else(|| anyhow!("Missing arguments"))?;
 
         let query = args
@@ -193,6 +204,8 @@ impl ToolExecutor for GetDocumentationTool {
                 String::new()
             }
         );
+
+        log::info!("Prepared documentation prompt for: {}", query);
 
         let messages = json!([{"role": "user", "content": prompt}]);
 
@@ -242,6 +255,7 @@ impl FindApisTool {
 #[async_trait]
 impl ToolExecutor for FindApisTool {
     async fn execute(&self, arguments: Option<Value>) -> Result<Vec<ToolContent>> {
+        log::debug!("Executing FindApisTool");
         let args = arguments.ok_or_else(|| anyhow!("Missing arguments"))?;
 
         let requirement = args
@@ -267,6 +281,11 @@ impl ToolExecutor for FindApisTool {
             } else {
                 String::new()
             }
+        );
+
+        log::info!(
+            "Prepared API search prompt for requirement: {}",
+            requirement
         );
 
         let messages = json!([{"role": "user", "content": prompt}]);
@@ -316,6 +335,7 @@ impl CheckDeprecatedCodeTool {
 #[async_trait]
 impl ToolExecutor for CheckDeprecatedCodeTool {
     async fn execute(&self, arguments: Option<Value>) -> Result<Vec<ToolContent>> {
+        log::debug!("Executing CheckDeprecatedCodeTool");
         let args = arguments.ok_or_else(|| anyhow!("Missing arguments"))?;
 
         let code = args
@@ -346,6 +366,11 @@ impl ToolExecutor for CheckDeprecatedCodeTool {
                 String::new()
             },
             code
+        );
+
+        log::info!(
+            "Prepared code deprecation check prompt for technology: {}",
+            technology
         );
 
         let messages = json!([{"role": "user", "content": prompt}]);
@@ -395,6 +420,7 @@ impl DeepResearchTool {
 #[async_trait]
 impl ToolExecutor for DeepResearchTool {
     async fn execute(&self, arguments: Option<Value>) -> Result<Vec<ToolContent>> {
+        log::debug!("Executing DeepResearchTool");
         let args = arguments.ok_or_else(|| anyhow!("Missing arguments"))?;
 
         let topic = args
@@ -448,6 +474,8 @@ impl ToolExecutor for DeepResearchTool {
             citation_style
         );
 
+        log::info!("Prepared deep research prompt for topic: {}", topic);
+
         // Use Perplexity's dedicated Deep Research model
         let model = "sonar-deep-research";
 
@@ -471,14 +499,18 @@ impl ToolExecutor for DeepResearchTool {
 
         // Add search recency filter if time constraint is specified
         if time_constraint.contains("recent") || time_constraint.contains("latest") {
+            log::info!("Applying 'week' recency filter due to time constraint");
             request_body["search_recency_filter"] = json!("week");
         } else if time_constraint.contains("year") {
+            log::info!("Applying 'month' recency filter due to time constraint");
             request_body["search_recency_filter"] = json!("month");
         }
 
         // Custom API call to handle deep research parameters
-        let api_key = env::var("PERPLEXITY_API_KEY")
-            .map_err(|_| anyhow!("PERPLEXITY_API_KEY not set in environment"))?;
+        let api_key = env::var("PERPLEXITY_API_KEY").map_err(|_| {
+            log::error!("PERPLEXITY_API_KEY not set in environment");
+            anyhow!("PERPLEXITY_API_KEY not set in environment")
+        })?;
 
         let response = self
             .http_client
@@ -492,10 +524,10 @@ impl ToolExecutor for DeepResearchTool {
             )
             .await?;
 
-        let response_body = response
-            .json()
-            .await
-            .map_err(|err| anyhow!("{}", err.to_string()))?;
+        let response_body = response.json().await.map_err(|err| {
+            log::error!("Failed to parse API response: {}", err);
+            anyhow!("{}", err.to_string())
+        })?;
 
         // Format response with enhanced reference formatting
         let content = format_deep_research_response(&response_body, citation_style)?;
@@ -544,6 +576,7 @@ impl ToolExecutor for DeepResearchTool {
 
 // Helper function to format deep research responses with enhanced citation handling
 fn format_deep_research_response(response_body: &Value, citation_style: &str) -> Result<String> {
+    log::debug!("Formatting deep research response");
     // Extract the main content
     let content = response_body["choices"][0]["message"]["content"]
         .as_str()
@@ -553,6 +586,11 @@ fn format_deep_research_response(response_body: &Value, citation_style: &str) ->
     // Process citations with appropriate formatting based on selected style
     if let Some(citations) = response_body.get("citations").and_then(|c| c.as_array()) {
         if !citations.is_empty() {
+            log::info!(
+                "Formatting {} citations in {} style",
+                citations.len(),
+                citation_style
+            );
             let mut formatted_refs = String::new();
 
             match citation_style {
@@ -633,10 +671,12 @@ fn format_deep_research_response(response_body: &Value, citation_style: &str) ->
                 }
             }
 
+            log::info!("Completed formatting deep research response with citations");
             return Ok(format!("{}\n{}", content, formatted_refs));
         }
     }
 
     // If no citations available, return just the content
+    log::warn!("No citations found in deep research response");
     Ok(content)
 }
