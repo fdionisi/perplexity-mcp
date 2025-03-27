@@ -24,6 +24,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b964d184e89d9b6b67dd2715bc8e74cf3107fb2b529990c90cf517326150bf4"
 
 [[package]]
+name = "async-stream"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b5a71a6f37880a80d1d7f19efd781e4b5de42c88f0722cc13bcb6cc2cfe8476"
+dependencies = [
+ "async-stream-impl",
+ "futures-core",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "async-stream-impl"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7c24de15d275a1ecfd47a380fb4d5ec9bfe0933f309ed5e705b775596a3574d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.86"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -102,8 +124,8 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "context-server"
-version = "0.8.2"
-source = "git+https://github.com/fdionisi/context-server#f843b3e0c2353662737b347672631e637d7c38ea"
+version = "0.8.3"
+source = "git+https://github.com/fdionisi/context-server#a7438dde8345aa181797243aaa40db8a5449536c"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -380,24 +402,29 @@ dependencies = [
 
 [[package]]
 name = "http-client"
-version = "0.2.0"
-source = "git+https://github.com/fdionisi/http-client#ee747be0dcb005669f41560f839e4375e2297a63"
+version = "0.4.0"
+source = "git+https://github.com/fdionisi/http-client#527795f932b5ecbbed3bbcf8f1ac709ee6ef8314"
 dependencies = [
  "anyhow",
+ "async-stream",
  "futures",
  "http",
  "pin-project-lite",
  "serde",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]
 name = "http-client-reqwest"
-version = "0.2.0"
-source = "git+https://github.com/fdionisi/http-client#ee747be0dcb005669f41560f839e4375e2297a63"
+version = "0.3.0"
+source = "git+https://github.com/fdionisi/http-client#527795f932b5ecbbed3bbcf8f1ac709ee6ef8314"
 dependencies = [
+ "anyhow",
+ "futures",
  "http-client",
  "reqwest",
+ "tracing",
 ]
 
 [[package]]
