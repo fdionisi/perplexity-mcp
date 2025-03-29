@@ -7,6 +7,29 @@ use http_client::{HttpClient, Request, RequestBuilderExt, ResponseAsyncBodyExt};
 use indoc::formatdoc;
 use serde_json::{Value, json};
 
+pub struct Usage {
+    pub completion_tokens: u64,
+    pub prompt_tokens: u64,
+    pub total_tokens: u64,
+}
+
+pub struct UsageReport {
+    pub model: String,
+    pub usage: Usage,
+}
+
+pub trait UsageReporter: Send + Sync {
+    fn report(&self, usage: UsageReport) -> Result<()>;
+}
+
+pub struct NoopUsageReporter;
+
+impl UsageReporter for NoopUsageReporter {
+    fn report(&self, _usage: UsageReport) -> Result<()> {
+        Ok(())
+    }
+}
+
 fn format_response_with_references(response_body: &Value) -> Result<String> {
     log::debug!("Formatting response with references");
     let content = response_body["choices"][0]["message"]["content"]
@@ -79,11 +102,18 @@ async fn call_perplexity_api(
 
 pub struct SearchTool {
     http_client: Arc<dyn HttpClient>,
+    usage_reporter: Arc<dyn UsageReporter>,
 }
 
 impl SearchTool {
-    pub fn new(http_client: Arc<dyn HttpClient>) -> Self {
-        Self { http_client }
+    pub fn new(
+        http_client: Arc<dyn HttpClient>,
+        usage_reporter: Option<Arc<dyn UsageReporter>>,
+    ) -> Self {
+        Self {
+            http_client,
+            usage_reporter: usage_reporter.unwrap_or_else(|| Arc::new(NoopUsageReporter)),
+        }
     }
 }
 
@@ -129,6 +159,27 @@ impl ToolExecutor for SearchTool {
         )
         .await?;
 
+        // Report usage if available
+        if let (Some(usage), Some(model)) = (
+            response_body.get("usage"),
+            response_body.get("model").and_then(|m| m.as_str()),
+        ) {
+            if let (Some(completion_tokens), Some(prompt_tokens), Some(total_tokens)) = (
+                usage.get("completion_tokens").and_then(|t| t.as_u64()),
+                usage.get("prompt_tokens").and_then(|t| t.as_u64()),
+                usage.get("total_tokens").and_then(|t| t.as_u64()),
+            ) {
+                let _ = self.usage_reporter.report(UsageReport {
+                    model: model.to_string(),
+                    usage: Usage {
+                        completion_tokens,
+                        prompt_tokens,
+                        total_tokens,
+                    },
+                });
+            }
+        }
+
         let content = format_response_with_references(&response_body)?;
 
         Ok(vec![ToolContent::Text { text: content }])
@@ -167,11 +218,18 @@ impl ToolExecutor for SearchTool {
 
 pub struct GetDocumentationTool {
     http_client: Arc<dyn HttpClient>,
+    usage_reporter: Arc<dyn UsageReporter>,
 }
 
 impl GetDocumentationTool {
-    pub fn new(http_client: Arc<dyn HttpClient>) -> Self {
-        Self { http_client }
+    pub fn new(
+        http_client: Arc<dyn HttpClient>,
+        usage_reporter: Option<Arc<dyn UsageReporter>>,
+    ) -> Self {
+        Self {
+            http_client,
+            usage_reporter: usage_reporter.unwrap_or_else(|| Arc::new(NoopUsageReporter)),
+        }
     }
 }
 
@@ -212,6 +270,27 @@ impl ToolExecutor for GetDocumentationTool {
         let response_body =
             call_perplexity_api(&self.http_client, "sonar-reasoning-pro", messages, None).await?;
 
+        // Report usage if available
+        if let (Some(usage), Some(model)) = (
+            response_body.get("usage"),
+            response_body.get("model").and_then(|m| m.as_str()),
+        ) {
+            if let (Some(completion_tokens), Some(prompt_tokens), Some(total_tokens)) = (
+                usage.get("completion_tokens").and_then(|t| t.as_u64()),
+                usage.get("prompt_tokens").and_then(|t| t.as_u64()),
+                usage.get("total_tokens").and_then(|t| t.as_u64()),
+            ) {
+                let _ = self.usage_reporter.report(UsageReport {
+                    model: model.to_string(),
+                    usage: Usage {
+                        completion_tokens,
+                        prompt_tokens,
+                        total_tokens,
+                    },
+                });
+            }
+        }
+
         let content = format_response_with_references(&response_body)?;
 
         Ok(vec![ToolContent::Text { text: content }])
@@ -244,11 +323,18 @@ impl ToolExecutor for GetDocumentationTool {
 
 pub struct FindApisTool {
     http_client: Arc<dyn HttpClient>,
+    usage_reporter: Arc<dyn UsageReporter>,
 }
 
 impl FindApisTool {
-    pub fn new(http_client: Arc<dyn HttpClient>) -> Self {
-        Self { http_client }
+    pub fn new(
+        http_client: Arc<dyn HttpClient>,
+        usage_reporter: Option<Arc<dyn UsageReporter>>,
+    ) -> Self {
+        Self {
+            http_client,
+            usage_reporter: usage_reporter.unwrap_or_else(|| Arc::new(NoopUsageReporter)),
+        }
     }
 }
 
@@ -293,6 +379,27 @@ impl ToolExecutor for FindApisTool {
         let response_body =
             call_perplexity_api(&self.http_client, "sonar-reasoning-pro", messages, None).await?;
 
+        // Report usage if available
+        if let (Some(usage), Some(model)) = (
+            response_body.get("usage"),
+            response_body.get("model").and_then(|m| m.as_str()),
+        ) {
+            if let (Some(completion_tokens), Some(prompt_tokens), Some(total_tokens)) = (
+                usage.get("completion_tokens").and_then(|t| t.as_u64()),
+                usage.get("prompt_tokens").and_then(|t| t.as_u64()),
+                usage.get("total_tokens").and_then(|t| t.as_u64()),
+            ) {
+                let _ = self.usage_reporter.report(UsageReport {
+                    model: model.to_string(),
+                    usage: Usage {
+                        completion_tokens,
+                        prompt_tokens,
+                        total_tokens,
+                    },
+                });
+            }
+        }
+
         let content = format_response_with_references(&response_body)?;
 
         Ok(vec![ToolContent::Text { text: content }])
@@ -324,11 +431,18 @@ impl ToolExecutor for FindApisTool {
 
 pub struct CheckDeprecatedCodeTool {
     http_client: Arc<dyn HttpClient>,
+    usage_reporter: Arc<dyn UsageReporter>,
 }
 
 impl CheckDeprecatedCodeTool {
-    pub fn new(http_client: Arc<dyn HttpClient>) -> Self {
-        Self { http_client }
+    pub fn new(
+        http_client: Arc<dyn HttpClient>,
+        usage_reporter: Option<Arc<dyn UsageReporter>>,
+    ) -> Self {
+        Self {
+            http_client,
+            usage_reporter: usage_reporter.unwrap_or_else(|| Arc::new(NoopUsageReporter)),
+        }
     }
 }
 
@@ -378,6 +492,27 @@ impl ToolExecutor for CheckDeprecatedCodeTool {
         let response_body =
             call_perplexity_api(&self.http_client, "sonar-reasoning-pro", messages, None).await?;
 
+        // Report usage if available
+        if let (Some(usage), Some(model)) = (
+            response_body.get("usage"),
+            response_body.get("model").and_then(|m| m.as_str()),
+        ) {
+            if let (Some(completion_tokens), Some(prompt_tokens), Some(total_tokens)) = (
+                usage.get("completion_tokens").and_then(|t| t.as_u64()),
+                usage.get("prompt_tokens").and_then(|t| t.as_u64()),
+                usage.get("total_tokens").and_then(|t| t.as_u64()),
+            ) {
+                let _ = self.usage_reporter.report(UsageReport {
+                    model: model.to_string(),
+                    usage: Usage {
+                        completion_tokens,
+                        prompt_tokens,
+                        total_tokens,
+                    },
+                });
+            }
+        }
+
         let content = format_response_with_references(&response_body)?;
 
         Ok(vec![ToolContent::Text { text: content }])
@@ -409,11 +544,18 @@ impl ToolExecutor for CheckDeprecatedCodeTool {
 
 pub struct DeepResearchTool {
     http_client: Arc<dyn HttpClient>,
+    usage_reporter: Arc<dyn UsageReporter>,
 }
 
 impl DeepResearchTool {
-    pub fn new(http_client: Arc<dyn HttpClient>) -> Self {
-        Self { http_client }
+    pub fn new(
+        http_client: Arc<dyn HttpClient>,
+        usage_reporter: Option<Arc<dyn UsageReporter>>,
+    ) -> Self {
+        Self {
+            http_client,
+            usage_reporter: usage_reporter.unwrap_or_else(|| Arc::new(NoopUsageReporter)),
+        }
     }
 }
 
@@ -524,10 +666,31 @@ impl ToolExecutor for DeepResearchTool {
             )
             .await?;
 
-        let response_body = response.json().await.map_err(|err| {
+        let response_body: Value = response.json().await.map_err(|err| {
             log::error!("Failed to parse API response: {}", err);
             anyhow!("{}", err.to_string())
         })?;
+
+        // Report usage if available
+        if let (Some(usage), Some(model_name)) = (
+            response_body.get("usage"),
+            response_body.get("model").and_then(|m| m.as_str()),
+        ) {
+            if let (Some(completion_tokens), Some(prompt_tokens), Some(total_tokens)) = (
+                usage.get("completion_tokens").and_then(|t| t.as_u64()),
+                usage.get("prompt_tokens").and_then(|t| t.as_u64()),
+                usage.get("total_tokens").and_then(|t| t.as_u64()),
+            ) {
+                let _ = self.usage_reporter.report(UsageReport {
+                    model: model_name.to_string(),
+                    usage: Usage {
+                        completion_tokens,
+                        prompt_tokens,
+                        total_tokens,
+                    },
+                });
+            }
+        }
 
         // Format response with enhanced reference formatting
         let content = format_deep_research_response(&response_body, citation_style)?;
