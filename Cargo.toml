@@ -5,11 +5,10 @@ edition = "2024"
 
 [dependencies]
 anyhow.workspace = true
-async-trait.workspace = true
 context-server.workspace = true
+context-server-utils = { git = "https://github.com/fdionisi/context-server", version = "0.1" }
 http-client.workspace = true
 http-client-reqwest.workspace = true
-parking_lot = "0.12.3"
 serde_json.workspace = true
 tokio = { version = "1.42", features = ["full"] }
 perplexity_mcp_tools = { path = "crates/perplexity_mcp_tools" }

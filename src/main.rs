@@ -1,22 +1,17 @@
-mod prompt_registry;
-mod resource_registry;
-mod tool_registry;
-
 use std::{env, sync::Arc};
 
 use anyhow::Result;
 use context_server::{ContextServer, ContextServerRpcRequest, ContextServerRpcResponse};
+use context_server_utils::{
+    prompt_registry::PromptRegistry, resource_registry::ResourceRegistry,
+    tool_registry::ToolRegistry,
+};
 use http_client::HttpClient;
 use http_client_reqwest::HttpClientReqwest;
 use perplexity_mcp_tools::{
     CheckDeprecatedCodeTool, DeepResearchTool, FindApisTool, GetDocumentationTool, SearchTool,
 };
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
-
-use crate::{
-    prompt_registry::PromptRegistry, resource_registry::ResourceRegistry,
-    tool_registry::ToolRegistry,
-};
 
 struct ContextServerState {
     rpc: ContextServer,

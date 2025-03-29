@@ -8,7 +8,6 @@ anyhow.workspace = true
 async-trait.workspace = true
 context-server.workspace = true
 http-client.workspace = true
-http-client-reqwest.workspace = true
 indoc.workspace = true
 log.workspace = true
 serde_json.workspace = true

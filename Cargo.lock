@@ -125,7 +125,7 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 [[package]]
 name = "context-server"
 version = "0.8.3"
-source = "git+https://github.com/fdionisi/context-server#a7438dde8345aa181797243aaa40db8a5449536c"
+source = "git+https://github.com/fdionisi/context-server#d1ad15bc737af1d6ff6908f329272345d486ee43"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -133,6 +133,18 @@ dependencies = [
  "serde",
  "serde_json",
  "tracing",
+]
+
+[[package]]
+name = "context-server-utils"
+version = "0.1.0"
+source = "git+https://github.com/fdionisi/context-server#d1ad15bc737af1d6ff6908f329272345d486ee43"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "context-server",
+ "parking_lot",
+ "serde_json",
 ]
 
 [[package]]
@@ -866,11 +878,10 @@ name = "perplexity-mcp"
 version = "0.2.0"
 dependencies = [
  "anyhow",
- "async-trait",
  "context-server",
+ "context-server-utils",
  "http-client",
  "http-client-reqwest",
- "parking_lot",
  "perplexity_mcp_tools",
  "serde_json",
  "tokio",
@@ -884,7 +895,6 @@ dependencies = [
  "async-trait",
  "context-server",
  "http-client",
- "http-client-reqwest",
  "indoc",
  "log",
  "serde_json",
