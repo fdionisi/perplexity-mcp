@@ -9,7 +9,7 @@ use context_server_utils::{
 use http_client::HttpClient;
 use http_client_reqwest::HttpClientReqwest;
 use perplexity_mcp_tools::{
-    CheckDeprecatedCodeTool, DeepResearchTool, FindApisTool, GetDocumentationTool, SearchTool,
+    CheckDeprecatedCodeTool, FindApisTool, GetDocumentationTool, SearchTool,
 };
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
@@ -23,17 +23,18 @@ impl ContextServerState {
 
         let tool_registry = Arc::new(ToolRegistry::default());
 
-        tool_registry.register(Arc::new(SearchTool::new(http_client.clone(), None)));
+        tool_registry.register(Arc::new(SearchTool::new(http_client.clone(), None, None)));
         tool_registry.register(Arc::new(GetDocumentationTool::new(
             http_client.clone(),
             None,
+            None,
         )));
-        tool_registry.register(Arc::new(FindApisTool::new(http_client.clone(), None)));
+        tool_registry.register(Arc::new(FindApisTool::new(http_client.clone(), None, None)));
         tool_registry.register(Arc::new(CheckDeprecatedCodeTool::new(
             http_client.clone(),
             None,
+            None,
         )));
-        tool_registry.register(Arc::new(DeepResearchTool::new(http_client.clone(), None)));
 
         let prompt_registry = Arc::new(PromptRegistry::default());
 

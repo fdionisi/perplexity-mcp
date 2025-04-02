@@ -6,29 +6,8 @@ use context_server::{Tool, ToolContent, ToolExecutor};
 use http_client::{HttpClient, Request, RequestBuilderExt, ResponseAsyncBodyExt};
 use indoc::formatdoc;
 use serde_json::{Value, json};
-
-pub struct Usage {
-    pub completion_tokens: u64,
-    pub prompt_tokens: u64,
-    pub total_tokens: u64,
-}
-
-pub struct UsageReport {
-    pub model: String,
-    pub usage: Usage,
-}
-
-pub trait UsageReporter: Send + Sync {
-    fn report(&self, usage: UsageReport) -> Result<()>;
-}
-
-pub struct NoopUsageReporter;
-
-impl UsageReporter for NoopUsageReporter {
-    fn report(&self, _usage: UsageReport) -> Result<()> {
-        Ok(())
-    }
-}
+use similarity_cache::{CacheQuery, PassthroughSimilarityCache, SimilarityCache};
+use usage_reporter::{NoopUsageReporter, Usage, UsageReport, UsageReporter};
 
 fn format_response_with_references(response_body: &Value) -> Result<String> {
     log::debug!("Formatting response with references");
@@ -63,11 +42,39 @@ fn format_response_with_references(response_body: &Value) -> Result<String> {
 
 async fn call_perplexity_api(
     http_client: &Arc<dyn HttpClient>,
+    similarity_cache: &Arc<dyn SimilarityCache>,
     model: &str,
     messages: Value,
     search_recency_filter: Option<&str>,
 ) -> Result<Value> {
     log::debug!("Calling Perplexity API with model: {}", model);
+
+    // Create a Query object for similarity cache
+    let query_embedding = vec![0.0; 1]; // Placeholder for actual embedding computation
+    let query = CacheQuery {
+        action: "perplexity_api_call".to_string(),
+        text: format!("{:?}", messages),
+        params: Some(json!({
+            "model": model,
+            "search_recency_filter": search_recency_filter
+        })),
+        embedding: query_embedding,
+        results: Value::Null,
+    };
+
+    // Check similarity cache for existing results
+    let similarities = similarity_cache.similarities(query.clone()).await?;
+    if let Some(similar_query) = similarities.first() {
+        if similar_query.score > 0.95 {
+            // High similarity threshold
+            log::info!(
+                "Found cached similar response with score: {}",
+                similar_query.score
+            );
+            return Ok(similar_query.query.results.clone());
+        }
+    }
+
     let api_key = env::var("PERPLEXITY_API_KEY").map_err(|_| {
         log::error!("PERPLEXITY_API_KEY not set in environment");
         anyhow!("PERPLEXITY_API_KEY not set in environment")
@@ -94,25 +101,36 @@ async fn call_perplexity_api(
         )
         .await?;
 
-    response.json().await.map_err(|err| {
+    let response_json: Value = response.json().await.map_err(|err| {
         log::error!("Failed to parse API response: {}", err);
         anyhow!("{}", err.to_string())
-    })
+    })?;
+
+    // Store the result in the similarity cache
+    let mut cached_query = query.clone();
+    cached_query.results = response_json.clone();
+    let _ = similarity_cache.store(cached_query).await;
+
+    Ok(response_json)
 }
 
 pub struct SearchTool {
     http_client: Arc<dyn HttpClient>,
     usage_reporter: Arc<dyn UsageReporter>,
+    similarity_cache: Arc<dyn SimilarityCache>,
 }
 
 impl SearchTool {
     pub fn new(
         http_client: Arc<dyn HttpClient>,
         usage_reporter: Option<Arc<dyn UsageReporter>>,
+        similarity_cache: Option<Arc<dyn SimilarityCache>>,
     ) -> Self {
         Self {
             http_client,
             usage_reporter: usage_reporter.unwrap_or_else(|| Arc::new(NoopUsageReporter)),
+            similarity_cache: similarity_cache
+                .unwrap_or_else(|| Arc::new(PassthroughSimilarityCache)),
         }
     }
 }
@@ -153,6 +171,7 @@ impl ToolExecutor for SearchTool {
 
         let response_body = call_perplexity_api(
             &self.http_client,
+            &self.similarity_cache,
             "sonar-reasoning-pro",
             messages,
             search_recency_filter,
@@ -219,16 +238,20 @@ impl ToolExecutor for SearchTool {
 pub struct GetDocumentationTool {
     http_client: Arc<dyn HttpClient>,
     usage_reporter: Arc<dyn UsageReporter>,
+    similarity_cache: Arc<dyn SimilarityCache>,
 }
 
 impl GetDocumentationTool {
     pub fn new(
         http_client: Arc<dyn HttpClient>,
         usage_reporter: Option<Arc<dyn UsageReporter>>,
+        similarity_cache: Option<Arc<dyn SimilarityCache>>,
     ) -> Self {
         Self {
             http_client,
             usage_reporter: usage_reporter.unwrap_or_else(|| Arc::new(NoopUsageReporter)),
+            similarity_cache: similarity_cache
+                .unwrap_or_else(|| Arc::new(PassthroughSimilarityCache)),
         }
     }
 }
@@ -267,8 +290,14 @@ impl ToolExecutor for GetDocumentationTool {
 
         let messages = json!([{"role": "user", "content": prompt}]);
 
-        let response_body =
-            call_perplexity_api(&self.http_client, "sonar-reasoning-pro", messages, None).await?;
+        let response_body = call_perplexity_api(
+            &self.http_client,
+            &self.similarity_cache,
+            "sonar-reasoning-pro",
+            messages,
+            None,
+        )
+        .await?;
 
         // Report usage if available
         if let (Some(usage), Some(model)) = (
@@ -324,16 +353,20 @@ impl ToolExecutor for GetDocumentationTool {
 pub struct FindApisTool {
     http_client: Arc<dyn HttpClient>,
     usage_reporter: Arc<dyn UsageReporter>,
+    similarity_cache: Arc<dyn SimilarityCache>,
 }
 
 impl FindApisTool {
     pub fn new(
         http_client: Arc<dyn HttpClient>,
         usage_reporter: Option<Arc<dyn UsageReporter>>,
+        similarity_cache: Option<Arc<dyn SimilarityCache>>,
     ) -> Self {
         Self {
             http_client,
             usage_reporter: usage_reporter.unwrap_or_else(|| Arc::new(NoopUsageReporter)),
+            similarity_cache: similarity_cache
+                .unwrap_or_else(|| Arc::new(PassthroughSimilarityCache)),
         }
     }
 }
@@ -376,8 +409,14 @@ impl ToolExecutor for FindApisTool {
 
         let messages = json!([{"role": "user", "content": prompt}]);
 
-        let response_body =
-            call_perplexity_api(&self.http_client, "sonar-reasoning-pro", messages, None).await?;
+        let response_body = call_perplexity_api(
+            &self.http_client,
+            &self.similarity_cache,
+            "sonar-reasoning-pro",
+            messages,
+            None,
+        )
+        .await?;
 
         // Report usage if available
         if let (Some(usage), Some(model)) = (
@@ -432,16 +471,20 @@ impl ToolExecutor for FindApisTool {
 pub struct CheckDeprecatedCodeTool {
     http_client: Arc<dyn HttpClient>,
     usage_reporter: Arc<dyn UsageReporter>,
+    similarity_cache: Arc<dyn SimilarityCache>,
 }
 
 impl CheckDeprecatedCodeTool {
     pub fn new(
         http_client: Arc<dyn HttpClient>,
         usage_reporter: Option<Arc<dyn UsageReporter>>,
+        similarity_cache: Option<Arc<dyn SimilarityCache>>,
     ) -> Self {
         Self {
             http_client,
             usage_reporter: usage_reporter.unwrap_or_else(|| Arc::new(NoopUsageReporter)),
+            similarity_cache: similarity_cache
+                .unwrap_or_else(|| Arc::new(PassthroughSimilarityCache)),
         }
     }
 }
@@ -489,8 +532,14 @@ impl ToolExecutor for CheckDeprecatedCodeTool {
 
         let messages = json!([{"role": "user", "content": prompt}]);
 
-        let response_body =
-            call_perplexity_api(&self.http_client, "sonar-reasoning-pro", messages, None).await?;
+        let response_body = call_perplexity_api(
+            &self.http_client,
+            &self.similarity_cache,
+            "sonar-reasoning-pro",
+            messages,
+            None,
+        )
+        .await?;
 
         // Report usage if available
         if let (Some(usage), Some(model)) = (
@@ -540,306 +589,4 @@ impl ToolExecutor for CheckDeprecatedCodeTool {
             }),
         }
     }
-}
-
-pub struct DeepResearchTool {
-    http_client: Arc<dyn HttpClient>,
-    usage_reporter: Arc<dyn UsageReporter>,
-}
-
-impl DeepResearchTool {
-    pub fn new(
-        http_client: Arc<dyn HttpClient>,
-        usage_reporter: Option<Arc<dyn UsageReporter>>,
-    ) -> Self {
-        Self {
-            http_client,
-            usage_reporter: usage_reporter.unwrap_or_else(|| Arc::new(NoopUsageReporter)),
-        }
-    }
-}
-
-#[async_trait]
-impl ToolExecutor for DeepResearchTool {
-    async fn execute(&self, arguments: Option<Value>) -> Result<Vec<ToolContent>> {
-        log::debug!("Executing DeepResearchTool");
-        let args = arguments.ok_or_else(|| anyhow!("Missing arguments"))?;
-
-        let topic = args
-            .get("topic")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing or invalid research topic"))?;
-
-        let depth = args
-            .get("depth")
-            .and_then(|v| v.as_str())
-            .unwrap_or("comprehensive");
-
-        let focus = args.get("focus").and_then(|v| v.as_str()).unwrap_or("");
-
-        let time_constraint = args
-            .get("time_constraint")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-
-        let citation_style = args
-            .get("citation_style")
-            .and_then(|v| v.as_str())
-            .unwrap_or("apa");
-
-        // Construct a robust prompt for deep research
-        let prompt = formatdoc!(
-            "Conduct a deep research investigation on: {}
-
-            Please approach this as an expert researcher would, conducting multiple searches and analyzing diverse sources to provide comprehensive information. Your research should be {}{}{}
-
-            When preparing your report:
-            1. Start with an executive summary of key findings
-            2. Organize information in a logical structure with headings and subheadings
-            3. Include critical analysis and multiple perspectives
-            4. Cite all sources using {} format
-            5. Prioritize recent, peer-reviewed, and authoritative sources
-            6. Identify any gaps in existing research
-            7. Conclude with practical implications and future directions",
-            topic,
-            depth,
-            if !focus.is_empty() {
-                format!(", focused on {}", focus)
-            } else {
-                String::new()
-            },
-            if !time_constraint.is_empty() {
-                format!(". Consider the time period: {}", time_constraint)
-            } else {
-                String::new()
-            },
-            citation_style
-        );
-
-        log::info!("Prepared deep research prompt for topic: {}", topic);
-
-        // Use Perplexity's dedicated Deep Research model
-        let model = "sonar-deep-research";
-
-        // Configure for Deep Research format with extensive search parameters
-        let messages = json!([{
-            "role": "system",
-            "content": "You are a Deep Research agent capable of conducting comprehensive research by performing multiple searches. Your goal is to create an in-depth report that combines information from hundreds of sources, analyzes contradictions, and presents a complete picture of the topic."
-        }, {
-            "role": "user",
-            "content": prompt
-        }]);
-
-        // Apply extended context window and reasoning parameters
-        let mut request_body = json!({
-            "model": model,
-            "messages": messages,
-            "temperature": 0.2,  // Lower temperature for more factual output
-            "max_tokens": 4000,  // Substantial response
-            "search_iterations": 10  // Enable multiple search rounds
-        });
-
-        // Add search recency filter if time constraint is specified
-        if time_constraint.contains("recent") || time_constraint.contains("latest") {
-            log::info!("Applying 'week' recency filter due to time constraint");
-            request_body["search_recency_filter"] = json!("week");
-        } else if time_constraint.contains("year") {
-            log::info!("Applying 'month' recency filter due to time constraint");
-            request_body["search_recency_filter"] = json!("month");
-        }
-
-        // Custom API call to handle deep research parameters
-        let api_key = env::var("PERPLEXITY_API_KEY").map_err(|_| {
-            log::error!("PERPLEXITY_API_KEY not set in environment");
-            anyhow!("PERPLEXITY_API_KEY not set in environment")
-        })?;
-
-        let response = self
-            .http_client
-            .send(
-                Request::builder()
-                    .method("POST")
-                    .uri("https://api.perplexity.ai/chat/completions")
-                    .header("Authorization", format!("Bearer {}", api_key))
-                    .header("Content-Type", "application/json")
-                    .json(request_body)?,
-            )
-            .await?;
-
-        let response_body: Value = response.json().await.map_err(|err| {
-            log::error!("Failed to parse API response: {}", err);
-            anyhow!("{}", err.to_string())
-        })?;
-
-        // Report usage if available
-        if let (Some(usage), Some(model_name)) = (
-            response_body.get("usage"),
-            response_body.get("model").and_then(|m| m.as_str()),
-        ) {
-            if let (Some(completion_tokens), Some(prompt_tokens), Some(total_tokens)) = (
-                usage.get("completion_tokens").and_then(|t| t.as_u64()),
-                usage.get("prompt_tokens").and_then(|t| t.as_u64()),
-                usage.get("total_tokens").and_then(|t| t.as_u64()),
-            ) {
-                let _ = self.usage_reporter.report(UsageReport {
-                    model: model_name.to_string(),
-                    usage: Usage {
-                        completion_tokens,
-                        prompt_tokens,
-                        total_tokens,
-                    },
-                });
-            }
-        }
-
-        // Format response with enhanced reference formatting
-        let content = format_deep_research_response(&response_body, citation_style)?;
-
-        Ok(vec![ToolContent::Text { text: content }])
-    }
-
-    fn to_tool(&self) -> Tool {
-        Tool {
-            name: "deep_research".into(),
-            description: Some(
-                "Conduct in-depth research on complex topics by analyzing hundreds of sources"
-                    .into(),
-            ),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "topic": {
-                        "type": "string",
-                        "description": "The research topic or question to investigate in depth"
-                    },
-                    "depth": {
-                        "type": "string",
-                        "description": "Desired research depth (brief, comprehensive, exhaustive)",
-                        "enum": ["brief", "comprehensive", "exhaustive"]
-                    },
-                    "focus": {
-                        "type": "string",
-                        "description": "Optional focus area (academic, business, technical, historical, etc.)"
-                    },
-                    "time_constraint": {
-                        "type": "string",
-                        "description": "Optional time period to focus on (recent, last year, historical, etc.)"
-                    },
-                    "citation_style": {
-                        "type": "string",
-                        "description": "Citation style for references (apa, mla, chicago, ieee)",
-                        "enum": ["apa", "mla", "chicago", "ieee"]
-                    }
-                },
-                "required": ["topic"]
-            }),
-        }
-    }
-}
-
-// Helper function to format deep research responses with enhanced citation handling
-fn format_deep_research_response(response_body: &Value, citation_style: &str) -> Result<String> {
-    log::debug!("Formatting deep research response");
-    // Extract the main content
-    let content = response_body["choices"][0]["message"]["content"]
-        .as_str()
-        .ok_or_else(|| anyhow!("Failed to extract content from response"))?
-        .to_string();
-
-    // Process citations with appropriate formatting based on selected style
-    if let Some(citations) = response_body.get("citations").and_then(|c| c.as_array()) {
-        if !citations.is_empty() {
-            log::info!(
-                "Formatting {} citations in {} style",
-                citations.len(),
-                citation_style
-            );
-            let mut formatted_refs = String::new();
-
-            match citation_style {
-                "apa" => {
-                    formatted_refs.push_str("\n\n## References\n\n");
-                    for (i, citation) in citations.iter().enumerate() {
-                        if let (Some(title), Some(url)) = (
-                            citation.get("title").and_then(|t| t.as_str()),
-                            citation.get("url").and_then(|u| u.as_str()),
-                        ) {
-                            let authors = citation
-                                .get("authors")
-                                .and_then(|a| a.as_array())
-                                .map(|authors| {
-                                    authors
-                                        .iter()
-                                        .filter_map(|a| a.as_str())
-                                        .collect::<Vec<&str>>()
-                                        .join(", ")
-                                })
-                                .unwrap_or_else(|| "".to_string());
-
-                            let date = citation.get("date").and_then(|d| d.as_str()).unwrap_or("");
-
-                            formatted_refs.push_str(&format!(
-                                "[{}] {}{} ({}). *{}*. {}\n\n",
-                                i + 1,
-                                if !authors.is_empty() {
-                                    format!("{}. ", authors)
-                                } else {
-                                    "".to_string()
-                                },
-                                if !date.is_empty() {
-                                    format!("({}). ", date)
-                                } else {
-                                    "".to_string()
-                                },
-                                citation
-                                    .get("publisher")
-                                    .and_then(|p| p.as_str())
-                                    .unwrap_or(""),
-                                title,
-                                url
-                            ));
-                        } else {
-                            formatted_refs.push_str(&format!(
-                                "[{}] {}\n\n",
-                                i + 1,
-                                citation.as_str().unwrap_or("Unknown source")
-                            ));
-                        }
-                    }
-                }
-                _ => {
-                    // Default citation format for other styles
-                    formatted_refs.push_str("\n\n## Sources\n\n");
-                    for (i, citation) in citations.iter().enumerate() {
-                        formatted_refs.push_str(&format!(
-                            "[{}]: {}\n",
-                            i + 1,
-                            citation.as_str().unwrap_or("Unknown URL")
-                        ));
-                    }
-                }
-            }
-
-            // Add source quality assessment
-            formatted_refs.push_str("\n## Source Assessment\n\n");
-            formatted_refs.push_str("| Category | Metrics |\n");
-            formatted_refs.push_str("|----------|--------|\n");
-            formatted_refs.push_str("| Total Sources | ");
-            formatted_refs.push_str(&format!("{} |\n", citations.len()));
-
-            // Add search depth information if available
-            if let Some(search_info) = response_body.get("search_info") {
-                if let Some(iterations) = search_info.get("iterations").and_then(|i| i.as_i64()) {
-                    formatted_refs.push_str(&format!("| Search Iterations | {} |\n", iterations));
-                }
-            }
-
-            log::info!("Completed formatting deep research response with citations");
-            return Ok(format!("{}\n{}", content, formatted_refs));
-        }
-    }
-
-    // If no citations available, return just the content
-    log::warn!("No citations found in deep research response");
-    Ok(content)
 }

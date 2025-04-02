@@ -3,11 +3,18 @@ name = "perplexity_mcp_tools"
 version = "0.2.1"
 edition = "2024"
 
+[lib]
+path = "src/perplexity_mcp_tools.rs"
+
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
 context-server.workspace = true
+chrono.workspace = true
 http-client.workspace = true
 indoc.workspace = true
 log.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+similarity_cache.workspace = true
+usage_reporter.workspace = true

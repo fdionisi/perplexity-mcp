@@ -1,0 +1,10 @@
+[package]
+name = "usage_reporter"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/usage_reporter.rs"
+
+[dependencies]
+anyhow.workspace = true
